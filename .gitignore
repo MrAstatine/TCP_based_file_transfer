@@ -9,6 +9,7 @@ __pycache__/
 
 # Virtual environment
 venv/
+.venv/
 .env/
 .env.*
 
@@ -38,3 +39,18 @@ Thumbs.db
 
 # Environment variables
 .env
+
+# P2P runtime caches (auto-generated at runtime)
+.p2p_resume/
+.p2p_security/
+
+# Auto-received transfer files
+received_*
+
+# Local dev / personal notes
+note.txt
+venv_setup_instructions.txt
+test_file.txt
+
+# Local Python version pin
+.python-version

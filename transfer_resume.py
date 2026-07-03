@@ -1,8 +1,12 @@
 import hashlib
+import hmac
 import json
 import os
 import struct
 import time
+import tqdm
+
+from Crypto.Protocol.KDF import PBKDF2
 
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
 PBKDF2_ROUNDS = 200_000
@@ -56,6 +60,8 @@ def send_transfer_metadata(
     transfer_id,
     session_id,
     session_ts,
+    file_hash,
+    session_salt,
 ):
     send_blob(sock, filename.encode("utf-8"))
     send_uint64(sock, file_size)
@@ -64,6 +70,8 @@ def send_transfer_metadata(
     send_blob(sock, transfer_id.encode("ascii"))
     send_blob(sock, session_id.encode("ascii"))
     send_uint64(sock, session_ts)
+    send_blob(sock, file_hash.encode("ascii"))
+    send_blob(sock, session_salt)
 
 
 def recv_transfer_metadata(sock):
@@ -74,6 +82,8 @@ def recv_transfer_metadata(sock):
     transfer_id = recv_blob(sock).decode("ascii")
     session_id = recv_blob(sock).decode("ascii")
     session_ts = recv_uint64(sock)
+    file_hash = recv_blob(sock).decode("ascii")
+    session_salt = recv_blob(sock)
     return {
         "filename": filename,
         "file_size": file_size,
@@ -82,6 +92,8 @@ def recv_transfer_metadata(sock):
         "transfer_id": transfer_id,
         "session_id": session_id,
         "session_ts": session_ts,
+        "file_hash": file_hash,
+        "session_salt": session_salt,
     }
 
 
@@ -253,3 +265,39 @@ def finalize_manifest(base_dir, manifest, bitmap):
     manifest["bitmap_hex"] = bitmap_to_hex(bitmap)
     manifest["completed"] = True
     save_manifest(base_dir, manifest)
+
+
+def compute_file_hash(file_path):
+    """Compute SHA-256 hash of a file, reading in chunks to support large files."""
+    sha256 = hashlib.sha256()
+    file_size = os.path.getsize(file_path)
+    with open(file_path, "rb") as f, tqdm.tqdm(
+        total=file_size,
+        unit="B",
+        unit_scale=True,
+        desc="Hashing",
+        leave=False,
+    ) as pbar:
+        while True:
+            data = f.read(DEFAULT_CHUNK_SIZE)
+            if not data:
+                break
+            sha256.update(data)
+            pbar.update(len(data))
+    return sha256.hexdigest()
+
+
+def derive_session_key(password, salt):
+    """Derive a 256-bit session key from a password and salt using PBKDF2."""
+    if isinstance(password, str):
+        password = password.encode()
+    return PBKDF2(password, salt, dkLen=32, count=PBKDF2_ROUNDS)
+
+
+def derive_chunk_key(session_key, chunk_id):
+    """Derive a per-chunk encryption key from the session key (HKDF-Expand style).
+
+    Uses HMAC-SHA256 with a domain-separated context string and the chunk ID.
+    """
+    context = b"CNFT/1.0-chunk-key" + struct.pack("!I", chunk_id)
+    return hmac.new(session_key, context, hashlib.sha256).digest()

@@ -10,19 +10,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import tqdm
 from Crypto.Cipher import AES
-from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Random import get_random_bytes
 
+from cnft_protocol import (
+    MSG_ACK,
+    MSG_DATA,
+    MSG_RESUME_BITMAP,
+    MSG_RESUME_QUERY,
+    recv_header,
+    send_header,
+)
 from transfer_resume import (
-    CHUNK_ACK,
-    CHUNK_DATA,
     DEFAULT_CHUNK_SIZE,
-    PBKDF2_ROUNDS,
-    RESUME_QUERY,
     build_transfer_id,
     chunk_count,
     chunk_offset,
     chunk_size_for_id,
+    compute_file_hash,
+    derive_chunk_key,
+    derive_session_key,
     list_missing_chunks,
     received_bytes_from_bitmap,
     recv_exact,
@@ -66,7 +72,7 @@ def get_preset_code():
     return preset_code
 
 
-def request_resume_bitmap(file_path, password, server_ip, server_port, preset_code):
+def request_resume_bitmap(file_path, file_hash, session_salt, server_ip, server_port, preset_code):
     filename = os.path.basename(file_path)
     file_size = os.path.getsize(file_path)
     total_chunks = chunk_count(file_size, CHUNK_SIZE)
@@ -81,7 +87,7 @@ def request_resume_bitmap(file_path, password, server_ip, server_port, preset_co
         if not authenticate_with_receiver(client, preset_code):
             raise ConnectionError("Authentication failed while requesting resume state")
 
-        client.sendall(RESUME_QUERY)
+        send_header(client, MSG_RESUME_QUERY)
         send_transfer_metadata(
             client,
             filename,
@@ -91,8 +97,13 @@ def request_resume_bitmap(file_path, password, server_ip, server_port, preset_co
             transfer_id,
             session_id,
             session_started_at,
+            file_hash,
+            session_salt,
         )
 
+        _, msg_type = recv_header(client)
+        if msg_type != MSG_RESUME_BITMAP:
+            raise ConnectionError(f"Expected RESUME_BITMAP, got {msg_type}")
         bitmap_length = recv_uint32(client)
         bitmap = bytearray(recv_exact(client, bitmap_length))
         return transfer_id, session_id, session_started_at, bitmap
@@ -102,7 +113,9 @@ def request_resume_bitmap(file_path, password, server_ip, server_port, preset_co
 
 def send_chunk(
     file_path,
-    password,
+    session_key,
+    file_hash,
+    session_salt,
     server_ip,
     server_port,
     preset_code,
@@ -126,7 +139,7 @@ def send_chunk(
             if not authenticate_with_receiver(client, preset_code):
                 raise ConnectionError("Authentication failed with receiver")
 
-            client.sendall(CHUNK_DATA)
+            send_header(client, MSG_DATA)
             send_transfer_metadata(
                 client,
                 filename,
@@ -136,6 +149,8 @@ def send_chunk(
                 transfer_id,
                 session_id,
                 session_started_at,
+                file_hash,
+                session_salt,
             )
             client.sendall(struct.pack("!I", chunk_id))
 
@@ -143,21 +158,19 @@ def send_chunk(
                 f.seek(offset)
                 chunk_data = f.read(size)
 
-            salt = get_random_bytes(16)
-            key = PBKDF2(password.encode(), salt, dkLen=32, count=PBKDF2_ROUNDS)
+            chunk_key = derive_chunk_key(session_key, chunk_id)
             nonce = get_random_bytes(16)
 
-            cipher = AES.new(key, AES.MODE_EAX, nonce)
+            cipher = AES.new(chunk_key, AES.MODE_EAX, nonce)
             ciphertext, tag = cipher.encrypt_and_digest(chunk_data)
 
-            client.sendall(salt)
             client.sendall(nonce)
             client.sendall(tag)
             client.sendall(ciphertext)
 
-            ack = recv_exact(client, len(CHUNK_ACK))
-            if ack != CHUNK_ACK:
-                raise ConnectionError("Chunk ACK not received")
+            _, msg_type = recv_header(client)
+            if msg_type != MSG_ACK:
+                raise ConnectionError(f"Expected ACK, got {msg_type}")
 
             return len(chunk_data)
 
@@ -185,13 +198,22 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
     file_size = os.path.getsize(file_path)
     total_chunks = chunk_count(file_size, CHUNK_SIZE)
     threads = min(8, max(1, total_chunks))
+
+    print("🔒 Computing file hash...")
+    file_hash = compute_file_hash(file_path)
+    session_salt = get_random_bytes(32)
+    session_key = derive_session_key(password, session_salt)
+
     transfer_id, session_id, session_started_at, bitmap = request_resume_bitmap(
-        file_path, password, server_ip, server_port, preset_code
+        file_path, file_hash, session_salt, server_ip, server_port, preset_code
     )
     received_bytes = received_bytes_from_bitmap(bitmap, file_size, CHUNK_SIZE)
     missing_chunks = list_missing_chunks(bitmap, total_chunks)
 
     print(f"\n📤 Sending {filename}")
+    print(f"📡 Protocol: CNFT/1.0")
+    print(f"🔑 Session key derived (PBKDF2 → HKDF per-chunk)")
+    print(f"🔏 File SHA-256: {file_hash[:16]}...")
     print(f"📦 Total chunks: {total_chunks}, Threads: {threads}")
     print(f"🧭 Transfer ID: {transfer_id}")
     if received_bytes:
@@ -220,7 +242,9 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
                     executor.submit(
                         send_chunk,
                         file_path,
-                        password,
+                        session_key,
+                        file_hash,
+                        session_salt,
                         server_ip,
                         server_port,
                         preset_code,
@@ -252,8 +276,8 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
                     )
 
             if failed_chunks:
-                refreshed_transfer_id, bitmap = request_resume_bitmap(
-                    file_path, password, server_ip, server_port, preset_code
+                refreshed_transfer_id, _, _, bitmap = request_resume_bitmap(
+                    file_path, file_hash, session_salt, server_ip, server_port, preset_code
                 )
                 if refreshed_transfer_id != transfer_id:
                     transfer_id = refreshed_transfer_id

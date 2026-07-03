@@ -9,20 +9,26 @@ import threading
 import time
 
 from Crypto.Cipher import AES
-from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Random import get_random_bytes
 from receiver_detection import detect_receiver_host
 
+from cnft_protocol import (
+    MSG_ACK,
+    MSG_DATA,
+    MSG_RESUME_BITMAP,
+    MSG_RESUME_QUERY,
+    recv_header,
+    send_header,
+)
 from transfer_resume import (
-    CHUNK_ACK,
-    CHUNK_DATA,
     DEFAULT_CHUNK_SIZE,
-    PBKDF2_ROUNDS,
-    RESUME_QUERY,
     bitmap_all_set,
     bitmap_has_chunk,
     chunk_offset,
     chunk_size_for_id,
+    compute_file_hash,
+    derive_chunk_key,
+    derive_session_key,
     empty_bitmap,
     ensure_manifest,
     ensure_part_file,
@@ -32,6 +38,7 @@ from transfer_resume import (
     recv_exact,
     recv_transfer_metadata,
     recv_uint32,
+    save_manifest,
     send_uint32,
     update_manifest_bitmap,
     bitmap_mark_chunk,
@@ -46,6 +53,8 @@ from transfer_security import (
 
 lock = threading.Lock()
 password_global = None
+session_key_global = None
+session_salt_global = None
 active_transfer_id = None
 last_activity_ts = None
 transfer_completed = False
@@ -60,9 +69,12 @@ def get_preset_code():
 
 
 def reset_state():
-    global password_global, active_transfer_id, last_activity_ts, transfer_completed
+    global password_global, session_key_global, session_salt_global
+    global active_transfer_id, last_activity_ts, transfer_completed
     with lock:
         password_global = None
+        session_key_global = None
+        session_salt_global = None
         active_transfer_id = None
         last_activity_ts = None
         transfer_completed = False
@@ -142,6 +154,42 @@ def _prompt_password(filename):
         return password_global
 
 
+def _cache_session_key(password, session_salt):
+    """Derive and cache the session key from password and salt."""
+    global session_key_global, session_salt_global
+    with lock:
+        if session_salt_global == session_salt and session_key_global is not None:
+            return
+        session_key_global = derive_session_key(password, session_salt)
+        session_salt_global = session_salt
+
+
+def _get_session_key(session_salt, filename):
+    """Retrieve the cached session key, or derive it if necessary."""
+    with lock:
+        if session_key_global is not None and session_salt_global == session_salt:
+            return session_key_global
+    password = _prompt_password(filename)
+    _cache_session_key(password, session_salt)
+    with lock:
+        return session_key_global
+
+
+def _verify_file_integrity(manifest):
+    """Verify the SHA-256 hash of the completed file against the sender's hash."""
+    expected_hash = manifest.get("file_hash")
+    if not expected_hash:
+        print("⚠️  No file hash received — skipping integrity verification")
+        return
+    actual_hash = compute_file_hash(manifest["final_path"])
+    if actual_hash == expected_hash:
+        print(f"✅ Integrity verified: SHA-256 matches for {manifest['filename']}")
+    else:
+        print(f"❌ INTEGRITY FAILURE: SHA-256 mismatch for {manifest['filename']}")
+        print(f"   Expected: {expected_hash}")
+        print(f"   Got:      {actual_hash}")
+
+
 def handle_resume_query(client, save_dir):
     metadata = recv_transfer_metadata(client)
     _record_activity(metadata["transfer_id"])
@@ -153,12 +201,23 @@ def handle_resume_query(client, save_dir):
         raise ValueError(f"Rejected resume session: {reason}")
 
     manifest, bitmap = _load_or_create_manifest(save_dir, metadata)
+
+    if metadata.get("file_hash") and not manifest.get("file_hash"):
+        manifest["file_hash"] = metadata["file_hash"]
+        save_manifest(save_dir, manifest)
+
     if len(bitmap) == 0 and manifest["total_chunks"]:
         bitmap = empty_bitmap(manifest["total_chunks"])
+
+    password = _prompt_password(metadata["filename"])
+    _cache_session_key(password, metadata["session_salt"])
+    print(f"🔑 Session key derived (PBKDF2 → HKDF per-chunk)")
+    print(f"🔏 File SHA-256: {metadata.get('file_hash', 'N/A')[:16]}...")
 
     received_bytes = received_bytes_from_bitmap(
         bitmap, manifest["file_size"], manifest["chunk_size"]
     )
+    send_header(client, MSG_RESUME_BITMAP)
     send_uint32(client, len(bitmap))
     client.sendall(bitmap)
 
@@ -185,12 +244,12 @@ def handle_chunk_data(client, save_dir):
     expected_size = chunk_size_for_id(
         metadata["file_size"], metadata["chunk_size"], chunk_id
     )
-    salt = recv_exact(client, 16)
     nonce = recv_exact(client, 16)
     tag = recv_exact(client, 16)
     encrypted = recv_exact(client, expected_size)
 
-    password = _prompt_password(metadata["filename"])
+    session_key = _get_session_key(metadata["session_salt"], metadata["filename"])
+    chunk_key = derive_chunk_key(session_key, chunk_id)
 
     with lock:
         manifest = ensure_manifest(
@@ -203,11 +262,10 @@ def handle_chunk_data(client, save_dir):
         bitmap = manifest_bitmap(manifest)
 
         if manifest.get("completed") or bitmap_has_chunk(bitmap, chunk_id):
-            client.sendall(CHUNK_ACK)
+            send_header(client, MSG_ACK)
             return
 
-        key = PBKDF2(password, salt, dkLen=32, count=PBKDF2_ROUNDS)
-        cipher = AES.new(key, AES.MODE_EAX, nonce)
+        cipher = AES.new(chunk_key, AES.MODE_EAX, nonce)
         decrypted = cipher.decrypt_and_verify(encrypted, tag)
 
         ensure_part_file(manifest)
@@ -223,13 +281,15 @@ def handle_chunk_data(client, save_dir):
             finalize_manifest(save_dir, manifest, bitmap)
             mark_session_completed(save_dir, _security_metadata(metadata))
 
+            _verify_file_integrity(manifest)
+
             global transfer_completed
             transfer_completed = True
 
     print(
         f"⬇ Received chunk {chunk_id + 1}/{manifest['total_chunks']} for {metadata['filename']}"
     )
-    client.sendall(CHUNK_ACK)
+    send_header(client, MSG_ACK)
 
 
 def receive_connection(client, preset_code, save_dir):
@@ -249,13 +309,14 @@ def receive_connection(client, preset_code, save_dir):
 
         record_auth_success(save_dir, peer_ip)
 
-        command = recv_exact(client, 1)
-        if command == RESUME_QUERY:
+        _, msg_type = recv_header(client)
+        print(f"📡 CNFT/1.0 ← {msg_type}")
+        if msg_type == MSG_RESUME_QUERY:
             handle_resume_query(client, save_dir)
-        elif command == CHUNK_DATA:
+        elif msg_type == MSG_DATA:
             handle_chunk_data(client, save_dir)
         else:
-            raise ValueError(f"Unknown command: {command!r}")
+            raise ValueError(f"Unknown message type: {msg_type}")
     except Exception as e:
         print(f"❌ Error handling connection: {e}")
     finally:

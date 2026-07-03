@@ -40,15 +40,15 @@ This project is a Computer Networks (CN) course project that implements secure f
 
 ### 🧾 Protocol & Architecture Improvements
 
-- Define a formal application-layer protocol
+- ✅ Define a formal application-layer protocol
    - Message types: AUTH, METADATA, DATA, ACK, ERROR.
    - Version the protocol (for example CNFT/1.0).
 
-- Add integrity verification summary
+- ✅ Add integrity verification summary
    - Send SHA-256 hash of original file.
    - Verify hash after decryption.
 
-- Introduce session keys
+- ✅ Introduce session keys
    - Derive one session key once.
    - Derive per-file keys from it (HKDF-style design).
 

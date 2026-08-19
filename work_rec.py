@@ -364,7 +364,7 @@ def receive_one_file(server, preset_code, save_dir):
     return False
 
 
-def start_server(host="0.0.0.0", port=9999, save_dir=".", preset_code=None):
+def start_server(host="0.0.0.0", port=1205, save_dir=".", preset_code=None):
     """Start the server to receive chunked files."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -406,12 +406,17 @@ if __name__ == "__main__":
 
     host = detect_receiver_host()
 
-    try:
-        port_str = input("Enter port (default: 9999): ").strip() or "9999"
-        port = int(port_str)
-    except ValueError:
-        print("❌ Invalid port. Exiting.")
-        sys.exit(1)
+    port_str = input("Enter port (default: 1205): ").strip()
+    if not port_str:
+        port = 1205
+    else:
+        try:
+            port = int(port_str)
+            if not (1 <= port <= 65535):
+                raise ValueError
+        except ValueError:
+            print("❌ Invalid port. Must be 1-65535. Exiting.")
+            sys.exit(1)
 
     print(f"📡 Auto-detected receiver host: {host}")
 

@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import hmac
 import os
 import socket
@@ -336,13 +337,38 @@ if __name__ == "__main__":
     PRESET_CODE = get_preset_code()
 
     # Get server details
-    server_ip = (
-        input("Enter receiver's IP address (default: 172.20.10.3): ").strip()
-        or "172.20.10.3"
-    )
-    server_port = int(
-        input("Enter receiver's port (default: 1205): ").strip() or "1205"
-    )
+    while True:
+        raw_ip = input("Enter receiver's IP address: ").strip()
+        if not raw_ip:
+            print("❌ IP address cannot be empty.")
+            continue
+        try:
+            addr = ipaddress.ip_address(raw_ip)
+        except ValueError:
+            print(f"❌ '{raw_ip}' is not a valid IP address. Use dotted-decimal IPv4 or IPv6.")
+            continue
+        if addr.is_loopback:
+            print("⚠️  Warning: Loopback address entered. Only works if sender and receiver are on the same machine.")
+        elif addr.is_multicast:
+            print("❌ Multicast addresses are not supported.")
+            continue
+        elif addr.is_unspecified:
+            print("❌ Unspecified address (0.0.0.0) is not valid for a receiver.")
+            continue
+        server_ip = raw_ip
+        break
+
+    port_str = input("Enter receiver's port (default: 1205): ").strip()
+    if not port_str:
+        server_port = 1205
+    else:
+        try:
+            server_port = int(port_str)
+            if not (1 <= server_port <= 65535):
+                raise ValueError
+        except ValueError:
+            print("❌ Invalid port. Must be 1-65535. Exiting.")
+            sys.exit(1)
 
     while True:
         print("\n📂 Opening file picker...")

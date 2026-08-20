@@ -1,3 +1,4 @@
+import atexit
 import contextlib
 import hashlib
 import hmac
@@ -5,11 +6,13 @@ import os
 import socket
 import subprocess
 import sys
+import signal
 import threading
 import time
 
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
+from firewall_setup import remove_inbound_rule, reset_and_create_rule
 from receiver_detection import detect_receiver_host
 
 from cnft_protocol import (
@@ -442,5 +445,15 @@ if __name__ == "__main__":
 
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
+
+    reset_and_create_rule(port)
+    atexit.register(remove_inbound_rule)
+
+    def _cleanup_on_signal(signum, frame):
+        remove_inbound_rule()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _cleanup_on_signal)
+    signal.signal(signal.SIGTERM, _cleanup_on_signal)
 
     sys.exit(start_server(host, port, save_dir, preset_code))

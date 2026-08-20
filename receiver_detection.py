@@ -24,7 +24,7 @@ def detect_receiver_host() -> str:
             matches = re.findall(r"IPv4 Address[^:]*:\s*([0-9.]+)", output)
 
         elif system == "darwin":  # macOS
-            # Try the simple route first – works on most macOS setups
+            # Try the simple route first - works on most macOS setups
             try:
                 output = subprocess.check_output(
                     ["ipconfig", "getifaddr", "en0"],

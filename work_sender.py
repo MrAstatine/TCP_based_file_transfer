@@ -68,7 +68,7 @@ def authenticate_with_receiver(client, preset_code):
 def get_preset_code():
     preset_code = input("Enter preset code: ").strip()
     if not preset_code:
-        print("❌ Error: Preset code cannot be empty.")
+        print("Error: Preset code cannot be empty.")
         raise SystemExit(1)
     return preset_code
 
@@ -181,10 +181,10 @@ def send_chunk(
             BrokenPipeError,
             ConnectionError,
         ) as e:
-            print(f"❌ Chunk {chunk_id}: {e} (attempt {attempt}/{MAX_RETRIES})")
+            print(f"Chunk {chunk_id}: {e} (attempt {attempt}/{MAX_RETRIES})")
             time.sleep(0.5 * attempt)
         except Exception as e:
-            print(f"❌ Chunk {chunk_id}: {e} (attempt {attempt}/{MAX_RETRIES})")
+            print(f"Chunk {chunk_id}: {e} (attempt {attempt}/{MAX_RETRIES})")
             break
         finally:
             client.close()
@@ -200,7 +200,7 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
     total_chunks = chunk_count(file_size, CHUNK_SIZE)
     threads = min(8, max(1, total_chunks))
 
-    print("🔒 Computing file hash...")
+    print("Computing file hash...")
     file_hash = compute_file_hash(file_path)
     session_salt = get_random_bytes(32)
     session_key = derive_session_key(password, session_salt)
@@ -211,14 +211,14 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
     received_bytes = received_bytes_from_bitmap(bitmap, file_size, CHUNK_SIZE)
     missing_chunks = list_missing_chunks(bitmap, total_chunks)
 
-    print(f"\n📤 Sending {filename}")
-    print(f"📡 Protocol: CNFT/1.0")
-    print(f"🔑 Session key derived (PBKDF2 → HKDF per-chunk)")
-    print(f"🔏 File SHA-256: {file_hash[:16]}...")
-    print(f"📦 Total chunks: {total_chunks}, Threads: {threads}")
-    print(f"🧭 Transfer ID: {transfer_id}")
+    print(f"\nSending {filename}")
+    print(f"Protocol: CNFT/1.0")
+    print(f"Session key derived (PBKDF2 -> HKDF per-chunk)")
+    print(f"File SHA-256: {file_hash[:16]}...")
+    print(f"Total chunks: {total_chunks}, Threads: {threads}")
+    print(f"Transfer ID: {transfer_id}")
     if received_bytes:
-        print(f"♻️  Receiver already has {received_bytes} bytes")
+        print(f"Receiver already has {received_bytes} bytes")
 
     progress = tqdm.tqdm(
         total=file_size,
@@ -233,7 +233,7 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
 
         while missing_chunks and resume_round < MAX_RESUME_ROUNDS:
             print(
-                f"📦 Resuming {len(missing_chunks)} missing chunks (round {resume_round + 1})"
+                f"Resuming {len(missing_chunks)} missing chunks (round {resume_round + 1})"
             )
             bytes_sent = 0
             failed_chunks = []
@@ -273,7 +273,7 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
                             failed_chunks.append(chunk_id)
                 except KeyboardInterrupt:
                     print(
-                        "\n🛑 Cancelled by user. Waiting for active chunk sends to finish..."
+                        "\nCancelled by user. Waiting for active chunk sends to finish..."
                     )
 
             if failed_chunks:
@@ -295,23 +295,23 @@ def send_file(file_path, password, server_ip, server_port, preset_code):
                 if not missing_chunks:
                     break
 
-                print(f"⚠️  Pending retries for chunks: {sorted(set(failed_chunks))}")
+                print(f"Pending retries for chunks: {sorted(set(failed_chunks))}")
             else:
                 missing_chunks = []
                 break
 
         if missing_chunks:
             print(
-                f"❌ Failed chunks after resume attempts: {missing_chunks[:10]}"
+                f"Failed chunks after resume attempts: {missing_chunks[:10]}"
                 + (" ..." if len(missing_chunks) > 10 else "")
             )
-            print(f"⚠️  File {filename} not fully sent.")
+            print(f"File {filename} not fully sent.")
             return False
 
     finally:
         progress.close()
 
-    print(f"✅ File {filename} sent successfully ({file_size} bytes).")
+    print(f"File {filename} sent successfully ({file_size} bytes).")
     return True
 
 
@@ -332,7 +332,9 @@ def pick_file():
 
 
 if __name__ == "__main__":
-    print("📤 Secure File Transfer - Sender")
+    print("-" * 40)
+    print("Secure File Transfer - Sender")
+    print("-" * 40)
 
     PRESET_CODE = get_preset_code()
 
@@ -340,20 +342,20 @@ if __name__ == "__main__":
     while True:
         raw_ip = input("Enter receiver's IP address: ").strip()
         if not raw_ip:
-            print("❌ IP address cannot be empty.")
+            print("IP address cannot be empty.")
             continue
         try:
             addr = ipaddress.ip_address(raw_ip)
         except ValueError:
-            print(f"❌ '{raw_ip}' is not a valid IP address. Use dotted-decimal IPv4 or IPv6.")
+            print(f"'{raw_ip}' is not a valid IP address. Use dotted-decimal IPv4 or IPv6.")
             continue
         if addr.is_loopback:
-            print("⚠️  Warning: Loopback address entered. Only works if sender and receiver are on the same machine.")
+            print("Warning: Loopback address entered. Only works if sender and receiver are on the same machine.")
         elif addr.is_multicast:
-            print("❌ Multicast addresses are not supported.")
+            print("Multicast addresses are not supported.")
             continue
         elif addr.is_unspecified:
-            print("❌ Unspecified address (0.0.0.0) is not valid for a receiver.")
+            print("Unspecified address (0.0.0.0) is not valid for a receiver.")
             continue
         server_ip = raw_ip
         break
@@ -367,31 +369,31 @@ if __name__ == "__main__":
             if not (1 <= server_port <= 65535):
                 raise ValueError
         except ValueError:
-            print("❌ Invalid port. Must be 1-65535. Exiting.")
+            print("Invalid port. Must be 1-65535. Exiting.")
             sys.exit(1)
 
     while True:
-        print("\n📂 Opening file picker...")
+        print("\nOpening file picker...")
         file_path = pick_file()
 
         if not file_path:
-            print("🚪 No file selected. Exiting.")
+            print("No file selected. Exiting.")
             break
 
         if not os.path.exists(file_path):
-            print(f"❌ Error: File '{file_path}' not found.")
+            print(f"Error: File '{file_path}' not found.")
             continue
 
         password = input("Enter unique password for this file: ").strip()
         if not password:
-            print("❌ Error: Password cannot be empty.")
+            print("Error: Password cannot be empty.")
             continue
 
-        print(f"\n📤 Sending {os.path.basename(file_path)}...")
+        print(f"\nSending {os.path.basename(file_path)}...")
         send_file(file_path, password, server_ip, server_port, PRESET_CODE)
 
         continue_sending = input("\nSend another file? (y/n): ").strip().lower()
         if continue_sending != "y":
             break
 
-    print("👋 File transfer session ended.")
+    print("File transfer session ended.")

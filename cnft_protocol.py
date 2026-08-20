@@ -1,4 +1,4 @@
-"""CNFT/1.0 — Application-layer protocol framing for P2P file transfer.
+"""CNFT/1.0 -- Application-layer protocol framing for P2P file transfer.
 
 Defines a lightweight header-based protocol that wraps every post-authentication
 message.  Each message starts with a single ASCII line:

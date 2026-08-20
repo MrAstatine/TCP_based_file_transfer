@@ -1,4 +1,4 @@
-﻿import atexit
+import atexit
 import contextlib
 import hashlib
 import hmac
@@ -66,7 +66,7 @@ CHUNK_SIZE = DEFAULT_CHUNK_SIZE
 
 def get_preset_code():
     """Get and store the preset code for this receiver session."""
-    print("🔐 Setup Authentication")
+    print("Setup Authentication")
     code = input("Enter preset code for this session: ").strip()
     return code
 
@@ -182,15 +182,15 @@ def _verify_file_integrity(manifest):
     """Verify the SHA-256 hash of the completed file against the sender's hash."""
     expected_hash = manifest.get("file_hash")
     if not expected_hash:
-        print("⚠️  No file hash received — skipping integrity verification")
+        print("Warning: No file hash received -- skipping integrity verification")
         return
     actual_hash = compute_file_hash(manifest["final_path"])
     if actual_hash == expected_hash:
-        print(f"✅ Integrity verified: SHA-256 matches for {manifest['filename']}")
+        print(f"Integrity verified: SHA-256 matches for {manifest[\"filename\"]}")
     else:
-        print(f"❌ INTEGRITY FAILURE: SHA-256 mismatch for {manifest['filename']}")
-        print(f"   Expected: {expected_hash}")
-        print(f"   Got:      {actual_hash}")
+        print(f"INTEGRITY FAILURE: SHA-256 mismatch for {manifest[\"filename\"]}")
+        print(f"Expected: {expected_hash}")
+        print(f"Got:      {actual_hash}")
 
 
 def handle_resume_query(client, save_dir):
@@ -214,8 +214,8 @@ def handle_resume_query(client, save_dir):
 
     password = _prompt_password(metadata["filename"])
     _cache_session_key(password, metadata["session_salt"])
-    print(f"🔑 Session key derived (PBKDF2 → HKDF per-chunk)")
-    print(f"🔏 File SHA-256: {metadata.get('file_hash', 'N/A')[:16]}...")
+    print(f"Session key derived (PBKDF2 -> HKDF per-chunk)")
+    print(f"File SHA-256: {metadata.get(\"file_hash\", \"N/A\")[:16]}...")
 
     received_bytes = received_bytes_from_bitmap(
         bitmap, manifest["file_size"], manifest["chunk_size"]
@@ -225,7 +225,7 @@ def handle_resume_query(client, save_dir):
     client.sendall(bitmap)
 
     print(
-        f"♻️  Resume query for {metadata['filename']}: "
+        f"Resume query for {metadata[\"filename\"]}: "
         f"{received_bytes}/{manifest['file_size']} bytes already stored"
     )
 
@@ -289,8 +289,7 @@ def handle_chunk_data(client, save_dir):
             global transfer_completed
             transfer_completed = True
 
-    print(
-        f"⬇ Received chunk {chunk_id + 1}/{manifest['total_chunks']} for {metadata['filename']}"
+    print(f"Received chunk {chunk_id + 1}/{manifest[\"total_chunks\"]} for {metadata[\"filename\"]}"
     )
     send_header(client, MSG_ACK)
 
@@ -302,18 +301,18 @@ def receive_connection(client, preset_code, save_dir):
 
         allowed, reason = can_attempt_auth(save_dir, peer_ip)
         if not allowed:
-            print(f"🚫 Auth rate limit for {peer_ip}: {reason}")
+            print(f"Auth rate limit reached for {peer_ip}: {reason}")
             return
 
         if not authenticate_sender(client, preset_code):
             record_auth_failure(save_dir, peer_ip)
-            print("❌ Authentication failed for chunk connection")
+            print("Authentication failed for chunk connection")
             return
 
         record_auth_success(save_dir, peer_ip)
 
         _, msg_type = recv_header(client)
-        print(f"📡 CNFT/1.0 ← {msg_type}")
+        print(f"CNFT/1.0 <- {msg_type}")
         if msg_type == MSG_RESUME_QUERY:
             handle_resume_query(client, save_dir)
         elif msg_type == MSG_DATA:
@@ -321,7 +320,7 @@ def receive_connection(client, preset_code, save_dir):
         else:
             raise ValueError(f"Unknown message type: {msg_type}")
     except Exception as e:
-        print(f"❌ Error handling connection: {e}")
+        print(f"Error handling connection: {e}")
     finally:
         client.close()
 
@@ -351,7 +350,7 @@ def receive_one_file(server, preset_code, save_dir):
         except OSError:
             return False
 
-        print(f"🔗 Connection from {addr}")
+        print(f"Connection from {addr}")
         worker = threading.Thread(
             target=receive_connection, args=(client, preset_code, save_dir)
         )
@@ -360,10 +359,10 @@ def receive_one_file(server, preset_code, save_dir):
 
     with lock:
         if transfer_completed:
-            print("✅ File received and reconstructed from resumable chunks.")
+            print("File received and reconstructed from resumable chunks.")
             return True
 
-    print("⚠️  Incomplete transfer. The manifest was saved for later resume.")
+    print("Incomplete transfer. The manifest was saved for later resume.")
     return False
 
 
@@ -374,37 +373,39 @@ def start_server(host="0.0.0.0", port=1205, save_dir=".", preset_code=None):
     server.bind((host, port))
     server.listen(50)
 
-    print(f"📡 Listening on {host}:{port} (waiting for sender)...")
+    print(f"Listening on {host}:{port} (waiting for sender)...")
 
     try:
         while True:
             ok = receive_one_file(server, preset_code, save_dir)
 
             if ok:
-                print("🎉 Transfer complete.")
+                print("Transfer complete.")
             else:
-                print("⚠️  Transfer ended without full success.")
+                print("Transfer ended without full success.")
 
             choice = input("Receive another file? (y/n): ").strip().lower()
             if choice != "y":
                 break
 
-            print("📡 Ready for next file. Waiting for sender...")
+            print("Ready for next file. Waiting for sender...")
 
     except KeyboardInterrupt:
-        print("\n🛑 Server stopped")
+        print("\nServer stopped.")
     finally:
         with contextlib.suppress(Exception):
             server.close()
-        print("👋 Receiver closed")
+        print("Receiver closed.")
 
 
 if __name__ == "__main__":
-    print("📥 Secure File Transfer - Receiver")
+    print("-" * 40)
+    print("Secure File Transfer - Receiver")
+    print("-" * 40)
 
     preset_code = get_preset_code()
     if not preset_code:
-        print("❌ Error: Preset code cannot be empty.")
+        print("Error: Preset code cannot be empty.")
         sys.exit(1)
 
     host = detect_receiver_host()
@@ -418,12 +419,12 @@ if __name__ == "__main__":
             if not (1 <= port <= 65535):
                 raise ValueError
         except ValueError:
-            print("❌ Invalid port. Must be 1-65535. Exiting.")
+            print("Error: Invalid port. Must be 1-65535. Exiting.")
             sys.exit(1)
 
-    print(f"📡 Auto-detected receiver host: {host}")
+    print(f"Auto-detected receiver host: {host}")
 
-    print("📂 Opening folder picker for save directory...")
+    print("Opening folder picker for save directory...")
     code = (
         "import tkinter as tk; from tkinter import filedialog; "
         "root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True); "
@@ -439,9 +440,9 @@ if __name__ == "__main__":
 
     if not save_dir:
         save_dir = "."
-        print("📁 No folder selected. Using current directory.")
+        print("No folder selected. Using current directory.")
     else:
-        print(f"📁 Save directory: {save_dir}")
+        print(f"Save directory: {save_dir}")
 
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -458,3 +459,4 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _cleanup_on_signal)
 
     sys.exit(start_server(host, port, save_dir, preset_code))
+

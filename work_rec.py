@@ -1,4 +1,4 @@
-import atexit
+﻿import atexit
 import contextlib
 import hashlib
 import hmac
@@ -446,6 +446,7 @@ if __name__ == "__main__":
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
+    print("Windows will ask for admin permission to configure the firewall -- please click Yes to allow it.")
     reset_and_create_rule(port)
     atexit.register(remove_inbound_rule)
 

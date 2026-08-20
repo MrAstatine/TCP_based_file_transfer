@@ -1,4 +1,4 @@
-import atexit
+﻿import atexit
 import contextlib
 import hashlib
 import hmac
@@ -68,6 +68,7 @@ def get_preset_code():
     """Get and store the preset code for this receiver session."""
     print("Setup Authentication")
     code = input("Enter preset code for this session: ").strip()
+    print('\n')
     return code
 
 
@@ -186,9 +187,9 @@ def _verify_file_integrity(manifest):
         return
     actual_hash = compute_file_hash(manifest["final_path"])
     if actual_hash == expected_hash:
-        print(f"Integrity verified: SHA-256 matches for {manifest[\"filename\"]}")
+        print(f"Integrity verified: SHA-256 matches for {manifest['filename']}")
     else:
-        print(f"INTEGRITY FAILURE: SHA-256 mismatch for {manifest[\"filename\"]}")
+        print(f"INTEGRITY FAILURE: SHA-256 mismatch for {manifest['filename']}")
         print(f"Expected: {expected_hash}")
         print(f"Got:      {actual_hash}")
 
@@ -215,7 +216,7 @@ def handle_resume_query(client, save_dir):
     password = _prompt_password(metadata["filename"])
     _cache_session_key(password, metadata["session_salt"])
     print(f"Session key derived (PBKDF2 -> HKDF per-chunk)")
-    print(f"File SHA-256: {metadata.get(\"file_hash\", \"N/A\")[:16]}...")
+    print(f"File SHA-256: {metadata.get('file_hash', 'N/A')[:16]}...")
 
     received_bytes = received_bytes_from_bitmap(
         bitmap, manifest["file_size"], manifest["chunk_size"]
@@ -225,7 +226,7 @@ def handle_resume_query(client, save_dir):
     client.sendall(bitmap)
 
     print(
-        f"Resume query for {metadata[\"filename\"]}: "
+        f"Resume query for {metadata['filename']}: "
         f"{received_bytes}/{manifest['file_size']} bytes already stored"
     )
 
@@ -289,7 +290,7 @@ def handle_chunk_data(client, save_dir):
             global transfer_completed
             transfer_completed = True
 
-    print(f"Received chunk {chunk_id + 1}/{manifest[\"total_chunks\"]} for {metadata[\"filename\"]}"
+    print(f"Received chunk {chunk_id + 1}/{manifest['total_chunks']} for {metadata['filename']}"
     )
     send_header(client, MSG_ACK)
 
@@ -411,6 +412,7 @@ if __name__ == "__main__":
     host = detect_receiver_host()
 
     port_str = input("Enter port (default: 1205): ").strip()
+    print('\n')
     if not port_str:
         port = 1205
     else:
@@ -423,6 +425,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
     print(f"Auto-detected receiver host: {host}")
+    print('\n')
 
     print("Opening folder picker for save directory...")
     code = (
@@ -443,7 +446,7 @@ if __name__ == "__main__":
         print("No folder selected. Using current directory.")
     else:
         print(f"Save directory: {save_dir}")
-
+    print('\n')
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
